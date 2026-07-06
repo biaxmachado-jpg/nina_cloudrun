@@ -1,0 +1,18 @@
+{
+  "name": "nina-cloudrun",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Secretaria virtual Nina - Cloud Run + Firestore (substitui o fluxo n8n)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node test/claude.test.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "@google-cloud/firestore": "^7.9.0",
+    "@google-cloud/speech": "^6.7.0",
+    "google-auth-library": "^9.14.1"
+  }
+}
