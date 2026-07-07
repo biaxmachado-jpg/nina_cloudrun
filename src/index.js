@@ -56,25 +56,31 @@ app.post("/cron/refresh-token", async (req, res) => {
 });
 
 /**
- * TODO: ajustar a extração de campos abaixo conforme o payload real do
- * UAZAPI - copie a estrutura exata do nó "Dados" do seu n8n atual.
+ * Extrai os campos relevantes do payload real do UAZAPI (confirmado a partir
+ * do nó "Dados" do n8n). A mensagem sempre vem dentro de body.message.
+ * Exemplo real de texto confirmado:
+ *   message.chatid = "5521971653435@s.whatsapp.net"
+ *   message.type = "text", message.text/content = texto da mensagem
+ *   message.messageid = id puro da mensagem
+ * Para áudio/imagem, o link do arquivo já vem no próprio payload
+ * (fileURL ou mediaUrl), sem precisar de uma chamada separada de download.
  */
 function parseIncoming(payload) {
   const message = payload.message || payload;
-  return {
-    from: message.chatid || message.from || message.number,
-    type: message.type || detectTypeFallback(message),
-    text: message.text || message.body || "",
-    messageId: message.id || message.messageId,
-    mimetype: message.mimetype || message.mimeType,
-  };
-}
 
-function detectTypeFallback(message) {
-  if (message.audio) return "audio";
-  if (message.image) return "image";
-  if (message.document) return "document";
-  return "text";
+  // chatid vem como "5521971653435@s.whatsapp.net" - extrai só o número
+  const rawChatId = message.chatid || message.chatlid || "";
+  const from = rawChatId.split("@")[0];
+
+  return {
+    from,
+    type: message.type || "text", // "text" | "audio" | "image" | "document"
+    text: message.text || message.content || "",
+    messageId: message.messageid || message.id,
+    fileUrl: message.fileURL || message.mediaUrl,
+    fileName: message.fileName || message.caption,
+    mimetype: message.mimeType || message.mimetype || message.mediaType,
+  };
 }
 
 async function handleIncomingMessage(payload) {
@@ -103,17 +109,17 @@ async function handleIncomingMessage(payload) {
 async function buildUserContentBlocks(incoming) {
   switch (incoming.type) {
     case "audio": {
-      const { base64 } = await downloadMedia(config, incoming.messageId);
+      const { base64 } = await downloadMedia(config, incoming.fileUrl);
       const transcript = await transcribeAudio(speechClient, base64);
       return [{ type: "text", text: transcript }];
     }
     case "image": {
-      const { base64, mimetype } = await downloadMedia(config, incoming.messageId);
+      const { base64, mimetype } = await downloadMedia(config, incoming.fileUrl, incoming.mimetype);
       const block = imageToClaudeBlock(base64, mimetype);
       return incoming.text ? [block, { type: "text", text: incoming.text }] : [block];
     }
     case "document": {
-      const { base64, mimetype } = await downloadMedia(config, incoming.messageId);
+      const { base64, mimetype } = await downloadMedia(config, incoming.fileUrl, incoming.mimetype);
       const docBlock = documentToClaudeBlock(base64, mimetype);
       if (docBlock) {
         return incoming.text ? [docBlock, { type: "text", text: incoming.text }] : [docBlock];
