@@ -29,4 +29,21 @@ export async function sendWhatsAppMessage(config, to, text) {
 
 export async function downloadMedia(config, fileUrl, fallbackMimetype) {
   if (!fileUrl) {
-    throw new
+    throw new Error("downloadMedia chamado sem fileUrl (mensagem sem mídia?)");
+  }
+
+  const resp = await fetch(fileUrl);
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => "");
+    throw new Error(`Falha ao baixar mídia (${resp.status}): ${errText}`);
+  }
+
+  const mimetype =
+    resp.headers.get("content-type") || fallbackMimetype || "application/octet-stream";
+
+  const arrayBuffer = await resp.arrayBuffer();
+  const base64 = Buffer.from(arrayBuffer).toString("base64");
+
+  return { base64, mimetype };
+}
