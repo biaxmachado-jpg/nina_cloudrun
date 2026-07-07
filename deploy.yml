@@ -1,0 +1,45 @@
+name: Deploy Nina Cloud Run
+
+on:
+  push:
+    branches: [main]
+
+env:
+  PROJECT_ID: SEU_PROJECT_ID_AQUI
+  REGION: southamerica-east1
+  SERVICE: nina-cloudrun
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          project_id: ${{ env.PROJECT_ID }}
+          source: .
+          env_vars: |
+            UAZAPI_BASE_URL=https://biasecretaria.uazapi.com
+          secrets: |
+            ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest
+            UAZAPI_TOKEN=UAZAPI_TOKEN:latest
+            GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest
+            GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
+            GOOGLE_REFRESH_TOKEN=GOOGLE_REFRESH_TOKEN:latest
+            MCP_CALENDAR_URL=MCP_CALENDAR_URL:latest
+            MCP_GMAIL_URL=MCP_GMAIL_URL:latest
+            MCP_DRIVE_URL=MCP_DRIVE_URL:latest
+            CRON_SECRET=CRON_SECRET:latest
