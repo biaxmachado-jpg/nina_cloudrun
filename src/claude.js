@@ -23,7 +23,11 @@ Quando for marcar ou consultar um evento, sempre confirme qual calendário
 usar (pessoal ou família) se não estiver claro pelo contexto da mensagem.
 
 Quando for criar uma tarefa, use a lista mais apropriada com base no contexto
-(a Bia pode te dizer o list_id se perguntar).`;
+(a Bia pode te dizer o list_id se perguntar).
+
+Se uma ferramenta retornar um erro, não trave a conversa - avise brevemente
+que aquela ação específica não funcionou agora e continue ajudando com o
+resto da mensagem normalmente.`;
 
 // Nota: os MCP servers do Google (Calendar/Gmail) não podem ser usados aqui
 // porque a API da Claude fora do claude.ai exige um token de autorização
@@ -196,7 +200,16 @@ export async function runNinaAgent(db, config, history, userContentBlocks) {
 
     const toolResults = [];
     for (const block of toolUseBlocks) {
-      const result = await executeCustomTool(db, config, block.name, block.input);
+      let result;
+      try {
+        result = await executeCustomTool(db, config, block.name, block.input);
+      } catch (err) {
+        console.error(`Erro na ferramenta ${block.name}:`, err);
+        result = JSON.stringify({
+          error: true,
+          message: `Não foi possível completar essa ação agora (${err.message || "erro desconhecido"}). Avise a Bia que precisa tentar de novo mais tarde, sem travar o resto da resposta.`,
+        });
+      }
       toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
     }
     messages.push({ role: "user", content: toolResults });
