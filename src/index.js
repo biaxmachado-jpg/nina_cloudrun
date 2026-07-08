@@ -6,7 +6,7 @@ import { loadHistory, saveMessage } from "./memory.js";
 import { sendWhatsAppMessage, downloadMedia } from "./uazapi.js";
 import { transcribeAudio, imageToClaudeBlock, documentToClaudeBlock } from "./media.js";
 import { runNinaAgent } from "./claude.js";
-import { refreshGoogleToken } from "./tasks.js";
+import { refreshGoogleToken } from "./google_auth.js";
 
 const app = express();
 app.use(express.json({ limit: "20mb" }));
