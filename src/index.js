@@ -13,7 +13,7 @@ app.use(express.json({ limit: "20mb" }));
 
 // Credenciais automáticas do Cloud Run (service account do próprio serviço) -
 // não precisa de chave JSON manual.
-const db = new Firestore();
+const db = new Firestore({ databaseId: "nina" });
 const speechClient = new SpeechClient();
 
 const config = {
