@@ -30,3 +30,23 @@ export async function saveMessage(db, whatsappNumber, role, content) {
     createdAt: new Date(),
   });
 }
+
+/**
+ * Trava atômica de dedupe: UAZAPI/Baileys às vezes reenvia o mesmo webhook
+ * (reconexão, retry). Usamos .create() (não .get()+.set()) de propósito -
+ * é atômico no Firestore, então se duas requisições quase simultâneas
+ * tentarem "reivindicar" o mesmo messageId, só uma ganha.
+ * Retorna true na primeira vez que vê essa mensagem, false se já processou.
+ */
+export async function claimMessage(db, messageId) {
+  if (!messageId) return true; // sem id, não dá pra travar - deixa processar
+  try {
+    await db.collection("processed_messages").doc(messageId).create({
+      processedAt: new Date(),
+    });
+    return true;
+  } catch (err) {
+    if (err.code === 6) return false; // ALREADY_EXISTS
+    throw err;
+  }
+}

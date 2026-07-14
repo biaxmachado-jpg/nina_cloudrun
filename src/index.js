@@ -2,7 +2,7 @@ import express from "express";
 import { Firestore } from "@google-cloud/firestore";
 import { SpeechClient } from "@google-cloud/speech";
 
-import { loadHistory, saveMessage } from "./memory.js";
+import { loadHistory, saveMessage, claimMessage } from "./memory.js";
 import { sendWhatsAppMessage, downloadMedia } from "./uazapi.js";
 import { transcribeAudio, imageToClaudeBlock, documentToClaudeBlock } from "./media.js";
 import { runNinaAgent } from "./claude.js";
@@ -132,6 +132,12 @@ function parseIncoming(payload) {
 
 async function handleIncomingMessage(payload) {
   const incoming = parseIncoming(payload);
+
+  const isFirstTime = await claimMessage(db, incoming.messageId);
+  if (!isFirstTime) {
+    console.log(`Mensagem ${incoming.messageId} já processada, ignorando duplicata.`);
+    return;
+  }
 
   try {
     const userContentBlocks = await buildUserContentBlocks(incoming);
