@@ -29,6 +29,7 @@ const config = {
   MCP_GMAIL_URL: process.env.MCP_GMAIL_URL,
   MCP_DRIVE_URL: process.env.MCP_DRIVE_URL,
   CRON_SECRET: process.env.CRON_SECRET,
+  CARDAPIO_WEBHOOK_SECRET: process.env.CARDAPIO_WEBHOOK_SECRET,
   OWNER_WHATSAPP_NUMBER: process.env.OWNER_WHATSAPP_NUMBER,
 };
 
@@ -73,11 +74,22 @@ app.post("/cron/daily-briefing", async (req, res) => {
   }
 });
 
-// Recebe a lista de compras do app/site do Cardápio e encaminha pro
-// WhatsApp. Protegido pelo mesmo CRON_SECRET (reaproveitado como secret
-// simples de webhook).
+// Recebe a lista de compras do app "Cardápio da Casa"
+// (https://cardapiocasa-eb828.web.app) e encaminha pro WhatsApp. Roda
+// direto do navegador da Bia, então precisamos liberar CORS pro domínio do
+// app e aceitar o preflight OPTIONS.
+const CARDAPIO_ORIGIN = "https://cardapiocasa-eb828.web.app";
+
+app.options("/webhook/cardapio", (req, res) => {
+  res.set("Access-Control-Allow-Origin", CARDAPIO_ORIGIN);
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type, x-cardapio-secret");
+  res.status(204).send();
+});
+
 app.post("/webhook/cardapio", async (req, res) => {
-  if (req.header("x-cron-secret") !== config.CRON_SECRET) {
+  res.set("Access-Control-Allow-Origin", CARDAPIO_ORIGIN);
+  if (req.header("x-cardapio-secret") !== config.CARDAPIO_WEBHOOK_SECRET) {
     return res.status(401).send("unauthorized");
   }
   try {
