@@ -7,6 +7,8 @@ import { sendWhatsAppMessage, downloadMedia } from "./uazapi.js";
 import { transcribeAudio, imageToClaudeBlock, documentToClaudeBlock } from "./media.js";
 import { runNinaAgent } from "./claude.js";
 import { refreshGoogleToken } from "./google_auth.js";
+import { sendDailyBriefing } from "./briefing.js";
+import { handleCardapioWebhook } from "./cardapio.js";
 
 const app = express();
 app.use(express.json({ limit: "20mb" }));
@@ -27,6 +29,7 @@ const config = {
   MCP_GMAIL_URL: process.env.MCP_GMAIL_URL,
   MCP_DRIVE_URL: process.env.MCP_DRIVE_URL,
   CRON_SECRET: process.env.CRON_SECRET,
+  OWNER_WHATSAPP_NUMBER: process.env.OWNER_WHATSAPP_NUMBER,
 };
 
 app.get("/health", (req, res) => res.status(200).send("ok"));
@@ -51,6 +54,37 @@ app.post("/cron/refresh-token", async (req, res) => {
     res.status(200).send("ok");
   } catch (err) {
     console.error("Erro ao renovar token:", err);
+    res.status(500).send("erro");
+  }
+});
+
+// Cloud Scheduler chama esse endpoint todo dia de manhã (7h) para mandar o
+// resumo de agenda + e-mails + tarefas pro WhatsApp da Bia.
+app.post("/cron/daily-briefing", async (req, res) => {
+  if (req.header("x-cron-secret") !== config.CRON_SECRET) {
+    return res.status(401).send("unauthorized");
+  }
+  try {
+    await sendDailyBriefing(db, config);
+    res.status(200).send("ok");
+  } catch (err) {
+    console.error("Erro ao enviar resumo diário:", err);
+    res.status(500).send("erro");
+  }
+});
+
+// Recebe a lista de compras do app/site do Cardápio e encaminha pro
+// WhatsApp. Protegido pelo mesmo CRON_SECRET (reaproveitado como secret
+// simples de webhook).
+app.post("/webhook/cardapio", async (req, res) => {
+  if (req.header("x-cron-secret") !== config.CRON_SECRET) {
+    return res.status(401).send("unauthorized");
+  }
+  try {
+    await handleCardapioWebhook(config, req.body);
+    res.status(200).send("ok");
+  } catch (err) {
+    console.error("Erro ao processar webhook do cardápio:", err);
     res.status(500).send("erro");
   }
 });
