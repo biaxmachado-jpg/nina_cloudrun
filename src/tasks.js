@@ -5,6 +5,22 @@ import { getValidAccessToken } from "./google_auth.js";
 
 const TASKS_API = "https://tasks.googleapis.com/tasks/v1";
 
+export async function listTaskLists(db, config) {
+  const accessToken = await getValidAccessToken(db, config);
+
+  const resp = await fetch(`${TASKS_API}/users/@me/lists`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => "");
+    throw new Error(`Falha ao listar listas de tarefas (${resp.status}): ${errText}`);
+  }
+
+  const data = await resp.json();
+  return data.items || []; // cada item: { id, title }
+}
+
 export async function createTask(db, config, listId, title, notes, due) {
   const accessToken = await getValidAccessToken(db, config);
 

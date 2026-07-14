@@ -1,6 +1,7 @@
-import { createTask, listTasks } from "./tasks.js";
+import { createTask, listTasks, listTaskLists } from "./tasks.js";
 import { listEvents, createEvent } from "./calendar.js";
 import { listMessages, sendMessage } from "./gmail.js";
+import { addRecipe } from "./cardapio_recipes.js";
 
 const CLAUDE_MODEL = "claude-sonnet-4-6";
 const MAX_TOOL_ROUNDS = 5;
@@ -11,10 +12,16 @@ const CALENDAR_IDS = {
   familia: "family05481570382979939457@group.calendar.google.com",
 };
 
-const SYSTEM_PROMPT = `Você é a Nina, secretária pessoal via WhatsApp da Bia.
+function buildSystemPrompt(taskLists) {
+  const listaTexto = taskLists.length
+    ? taskLists.map((l) => `- "${l.title}" → list_id: ${l.id}`).join("\n")
+    : "(não foi possível carregar as listas agora - se precisar criar/consultar tarefa, avise a Bia)";
+
+  return `Você é a Nina, secretária pessoal via WhatsApp da Bia.
 Você ajuda a marcar eventos na agenda (pessoal ou da família), criar tarefas,
-e consultar e-mails. Seja direta, objetiva e use um tom natural de mensagem
-de WhatsApp - sem formalidade excessiva.
+consultar e-mails, e adicionar receitas no app Cardápio da Casa. Seja direta,
+objetiva e use um tom natural de mensagem de WhatsApp - sem formalidade
+excessiva.
 
 Calendários disponíveis:
 - Pessoal: "${CALENDAR_IDS.pessoal}"
@@ -22,12 +29,17 @@ Calendários disponíveis:
 Quando for marcar ou consultar um evento, sempre confirme qual calendário
 usar (pessoal ou família) se não estiver claro pelo contexto da mensagem.
 
-Quando for criar uma tarefa, use a lista mais apropriada com base no contexto
-(a Bia pode te dizer o list_id se perguntar).
+Listas de tarefas do Google Tasks já disponíveis (use o list_id certo, NUNCA
+pergunte o list_id pra Bia - você já sabe todos):
+${listaTexto}
+Se a Bia não disser qual lista usar, escolha a mais apropriada pelo contexto
+(ex: assunto de compras → lista de compras, assunto de casa → "Casa", etc.)
+e mencione qual lista você escolheu na resposta.
 
 Se uma ferramenta retornar um erro, não trave a conversa - avise brevemente
 que aquela ação específica não funcionou agora e continue ajudando com o
 resto da mensagem normalmente.`;
+}
 
 // Nota: os MCP servers do Google (Calendar/Gmail) não podem ser usados aqui
 // porque a API da Claude fora do claude.ai exige um token de autorização
@@ -112,9 +124,23 @@ const CUSTOM_TOOLS = [
       required: ["list_id"],
     },
   },
+  {
+    name: "cardapio_add_recipe",
+    description:
+      "Adiciona uma receita no app Cardápio da Casa (cardapiocasa-eb828.web.app). Use quando a Bia mandar um link ou o texto de uma receita e pedir pra incluir no cardápio.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Nome da receita, ex: 'Bolinho de arroz'" },
+        url: { type: "string", description: "Link da receita (se veio de um site)" },
+        text: { type: "string", description: "Texto completo da receita (se não tiver link)" },
+      },
+      required: ["name"],
+    },
+  },
 ];
 
-async function callClaude(env, messages) {
+async function callClaude(env, systemPrompt, messages) {
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -125,7 +151,7 @@ async function callClaude(env, messages) {
     body: JSON.stringify({
       model: CLAUDE_MODEL,
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages,
       tools: CUSTOM_TOOLS,
     }),
@@ -172,6 +198,10 @@ async function executeCustomTool(db, env, name, input) {
       const result = await listTasks(db, env, input.list_id);
       return JSON.stringify(result);
     }
+    case "cardapio_add_recipe": {
+      const result = await addRecipe(env, { name: input.name, url: input.url, text: input.text });
+      return JSON.stringify(result);
+    }
     default:
       return JSON.stringify({ error: `Ferramenta desconhecida: ${name}` });
   }
@@ -186,8 +216,16 @@ export async function runNinaAgent(db, config, history, userContentBlocks) {
     { role: "user", content: userContentBlocks },
   ];
 
+  let taskLists = [];
+  try {
+    taskLists = await listTaskLists(db, config);
+  } catch (err) {
+    console.error("Erro ao buscar listas de tarefas (seguindo sem elas):", err);
+  }
+  const systemPrompt = buildSystemPrompt(taskLists);
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const response = await callClaude(config, messages);
+    const response = await callClaude(config, systemPrompt, messages);
 
     const toolUseBlocks = response.content.filter((b) => b.type === "tool_use");
 
