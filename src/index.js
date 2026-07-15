@@ -122,9 +122,14 @@ function parseIncoming(payload) {
   return {
     from,
     type: message.type || "text", // "text" | "audio" | "image" | "document"
-    text: message.text || message.content || "",
+    text: message.text || message.content || message.caption || "",
     messageId: message.messageid || message.id,
-    fileUrl: message.fileURL || message.mediaUrl,
+    fileUrl:
+      message.fileURL ||
+      message.mediaUrl ||
+      message.url ||
+      message.image?.url ||
+      message.imageMessage?.url,
     fileName: message.fileName || message.caption,
     mimetype: message.mimeType || message.mimetype || message.mediaType,
   };
@@ -151,10 +156,11 @@ async function handleIncomingMessage(payload) {
     await sendWhatsAppMessage(config, incoming.from, replyText);
   } catch (err) {
     console.error("Erro ao processar mensagem:", err);
+    const detalhe = (err?.message || String(err)).slice(0, 300);
     await sendWhatsAppMessage(
       config,
       incoming.from,
-      "Desculpa, tive um problema aqui do meu lado. Pode tentar de novo?"
+      `Desculpa, tive um problema aqui do meu lado 😕\n\n_Detalhe técnico: ${detalhe}_\n\nPode tentar de novo?`
     ).catch(() => {});
   }
 }

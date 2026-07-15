@@ -5,7 +5,7 @@
  */
 import { listEvents } from "./calendar.js";
 import { listMessages } from "./gmail.js";
-import { listTasks } from "./tasks.js";
+import { listTasks, listTaskLists } from "./tasks.js";
 import { sendWhatsAppMessage } from "./uazapi.js";
 
 const CALENDAR_IDS = {
@@ -13,9 +13,20 @@ const CALENDAR_IDS = {
   familia: "family05481570382979939457@group.calendar.google.com",
 };
 
-// Lista "TO DO!" do Google Tasks (mesma usada no n8n antigo). Ajuste aqui se
-// quiser puxar o resumo diário de outra lista.
-const DAILY_TASK_LIST_ID = "MTM3OTM5OTUxNjcyMzE5Njk1NjA6MDow";
+// Nome da lista usada no resumo diário. Buscamos o ID dinamicamente a cada
+// vez (em vez de fixar um ID), pra não depender de um ID que pode ficar
+// desatualizado se a lista for recriada/renomeada.
+const DAILY_TASK_LIST_TITLE = "TO DO!";
+
+async function resolveDailyTaskListId(db, config) {
+  const lists = await listTaskLists(db, config);
+  const match = lists.find((l) => l.title === DAILY_TASK_LIST_TITLE);
+  if (match) return match.id;
+  console.error(
+    `Lista "${DAILY_TASK_LIST_TITLE}" não encontrada entre: ${lists.map((l) => l.title).join(", ")}`
+  );
+  return lists[0]?.id || null; // fallback: primeira lista disponível
+}
 
 const TZ = "America/Sao_Paulo";
 
@@ -64,6 +75,11 @@ function startEndOfDayISO(offsetDays = 0) {
 export async function buildBriefingMessage(db, config) {
   const { timeMin, timeMax } = startEndOfDayISO(0);
 
+  const dailyTaskListId = await resolveDailyTaskListId(db, config).catch((err) => {
+    console.error("Erro ao resolver lista de tarefas do briefing:", err);
+    return null;
+  });
+
   const [eventosPessoal, eventosFamilia, emails, tarefas] = await Promise.all([
     listEvents(db, config, CALENDAR_IDS.pessoal, timeMin, timeMax).catch((err) => {
       console.error("Erro ao buscar agenda pessoal no briefing:", err);
@@ -77,10 +93,12 @@ export async function buildBriefingMessage(db, config) {
       console.error("Erro ao buscar e-mails no briefing:", err);
       return [];
     }),
-    listTasks(db, config, DAILY_TASK_LIST_ID).catch((err) => {
-      console.error("Erro ao buscar tarefas no briefing:", err);
-      return [];
-    }),
+    dailyTaskListId
+      ? listTasks(db, config, dailyTaskListId).catch((err) => {
+          console.error("Erro ao buscar tarefas no briefing:", err);
+          return [];
+        })
+      : Promise.resolve([]),
   ]);
 
   const hoje = new Date().toLocaleDateString("pt-BR", {
