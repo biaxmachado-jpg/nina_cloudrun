@@ -105,6 +105,28 @@ app.post("/webhook/cardapio", async (req, res) => {
   }
 });
 
+// Limpa o histórico de conversa de um número (Firestore) - útil pra testar
+// sem a Nina "repetir" explicações erradas que ela mesma deu antes e que
+// ficaram salvas no histórico. Só apaga, não mexe em mais nada.
+app.get("/debug/reset-history", async (req, res) => {
+  if (req.query.secret !== config.CARDAPIO_WEBHOOK_SECRET) {
+    return res.status(401).send("unauthorized");
+  }
+  const number = req.query.number;
+  if (!number) {
+    return res.status(400).send("faltou ?number=5521999999999 na URL");
+  }
+  try {
+    const snapshot = await db.collection("conversations").where("whatsappNumber", "==", number).get();
+    const batch = db.batch();
+    snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    res.status(200).json({ ok: true, apagadas: snapshot.size });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // Endpoint de diagnóstico: mostra erro cru do Google pra Calendar/Gmail/Tasks
 // sem depender da Nina reformular ou do WhatsApp cortar a mensagem. Só abrir
 // a URL no navegador (GET, com o CRON_SECRET na query).
