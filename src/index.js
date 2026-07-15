@@ -109,7 +109,7 @@ app.post("/webhook/cardapio", async (req, res) => {
 // sem depender da Nina reformular ou do WhatsApp cortar a mensagem. Só abrir
 // a URL no navegador (GET, com o CRON_SECRET na query).
 app.get("/debug/google-status", async (req, res) => {
-  if (req.query.secret !== config.CRON_SECRET) {
+  if (req.query.secret !== config.CARDAPIO_WEBHOOK_SECRET) {
     return res.status(401).send("unauthorized");
   }
 
