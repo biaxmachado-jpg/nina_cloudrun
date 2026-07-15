@@ -170,6 +170,11 @@ async function buildUserContentBlocks(incoming) {
     case "audio": {
       const { base64 } = await downloadMedia(config, incoming.fileUrl);
       const transcript = await transcribeAudio(speechClient, base64);
+      if (!transcript) {
+        throw new Error(
+          "Transcrição do áudio veio vazia (Speech-to-Text não reconheceu nada - pode ser mismatch de encoding/sample rate)."
+        );
+      }
       return [{ type: "text", text: transcript }];
     }
     case "image": {

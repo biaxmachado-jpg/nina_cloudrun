@@ -6,19 +6,35 @@
  */
 
 export async function transcribeAudio(speechClient, base64Audio) {
-  const [response] = await speechClient.recognize({
-    audio: { content: base64Audio },
-    config: {
-      encoding: "OGG_OPUS", // WhatsApp/UAZAPI normalmente manda ogg/opus - ajuste se necessário
-      sampleRateHertz: 16000,
-      languageCode: "pt-BR",
-    },
-  });
+  // O WhatsApp/Baileys manda OGG_OPUS, mas a taxa de amostragem real do
+  // arquivo pode variar (16000 é o mais comum em notas de voz, mas alguns
+  // clientes mandam 48000). Tenta as duas em vez de assumir uma fixa.
+  const sampleRatesToTry = [16000, 48000];
 
-  return (response.results || [])
-    .map((r) => r.alternatives[0]?.transcript || "")
-    .join(" ")
-    .trim();
+  for (const sampleRateHertz of sampleRatesToTry) {
+    try {
+      const [response] = await speechClient.recognize({
+        audio: { content: base64Audio },
+        config: {
+          encoding: "OGG_OPUS",
+          sampleRateHertz,
+          languageCode: "pt-BR",
+        },
+      });
+
+      const transcript = (response.results || [])
+        .map((r) => r.alternatives[0]?.transcript || "")
+        .join(" ")
+        .trim();
+
+      if (transcript) return transcript;
+    } catch (err) {
+      console.error(`Falha na transcrição com sampleRateHertz=${sampleRateHertz}:`, err.message);
+      // tenta a próxima taxa
+    }
+  }
+
+  return ""; // nenhuma taxa funcionou / áudio sem fala reconhecível
 }
 
 export function imageToClaudeBlock(base64Image, mimetype) {
