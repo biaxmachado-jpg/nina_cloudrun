@@ -43,6 +43,11 @@ app.post("/webhook", (req, res) => {
   // Responde rápido pro UAZAPI (evita timeout/retry duplicado) e processa
   // o resto em background.
   res.status(200).send("ok");
+  // Captura o payload bruto pra diagnóstico (temporário) - deixa ver
+  // exatamente os campos reais que o UAZAPI manda, sem precisar adivinhar.
+  db.collection("debug_payloads")
+    .add({ payload: req.body, receivedAt: new Date() })
+    .catch((err) => console.error("Erro ao salvar debug_payload:", err));
   handleIncomingMessage(req.body).catch((err) => {
     console.error("Erro ao processar mensagem:", err);
   });
@@ -102,6 +107,25 @@ app.post("/webhook/cardapio", async (req, res) => {
   } catch (err) {
     console.error("Erro ao processar webhook do cardápio:", err);
     res.status(500).send("erro");
+  }
+});
+
+// Mostra os últimos payloads brutos recebidos do UAZAPI, sem nenhuma
+// interpretação - pra diagnosticar o formato real de campos de mídia.
+app.get("/debug/last-payloads", async (req, res) => {
+  if (req.query.secret !== config.CARDAPIO_WEBHOOK_SECRET) {
+    return res.status(401).send("unauthorized");
+  }
+  try {
+    const snapshot = await db
+      .collection("debug_payloads")
+      .orderBy("receivedAt", "desc")
+      .limit(5)
+      .get();
+    const payloads = snapshot.docs.map((d) => d.data());
+    res.status(200).json(payloads);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
