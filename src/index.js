@@ -3,7 +3,7 @@ import { Firestore } from "@google-cloud/firestore";
 import { SpeechClient } from "@google-cloud/speech";
 
 import { loadHistory, saveMessage, claimMessage } from "./memory.js";
-import { sendWhatsAppMessage, downloadMedia } from "./uazapi.js";
+import { sendWhatsAppMessage, downloadMedia, downloadMediaByMessageId } from "./uazapi.js";
 import { transcribeAudio, imageToClaudeBlock, documentToClaudeBlock } from "./media.js";
 import { runNinaAgent } from "./claude.js";
 import { refreshGoogleToken } from "./google_auth.js";
@@ -230,9 +230,21 @@ async function handleIncomingMessage(payload) {
 }
 
 async function getMediaBase64(incoming) {
+  // Prioridade 1: o endpoint real do UAZAPI que o n8n antigo usava e
+  // funcionava (/message/download com o messageId) - mídia do WhatsApp é
+  // criptografada, então isso é o caminho correto, não um atalho.
+  if (incoming.messageId) {
+    try {
+      return await downloadMediaByMessageId(config, incoming.messageId);
+    } catch (err) {
+      console.error("Falha em downloadMediaByMessageId, tentando alternativas:", err.message);
+    }
+  }
+  // Prioridade 2: base64 embutido direto no payload do webhook, se existir.
   if (incoming.fileBase64) {
     return { base64: incoming.fileBase64, mimetype: incoming.mimetype };
   }
+  // Prioridade 3 (fallback menos confiável): baixar a fileURL crua direto.
   return downloadMedia(config, incoming.fileUrl, incoming.mimetype);
 }
 
