@@ -122,7 +122,7 @@ function parseIncoming(payload) {
   return {
     from,
     type: message.type || "text", // "text" | "audio" | "image" | "document"
-    text: message.text || message.content || message.caption || "",
+    text: toSafeString(message.text || message.content || message.caption),
     messageId: message.messageid || message.id,
     fileUrl:
       message.fileURL ||
@@ -133,6 +133,20 @@ function parseIncoming(payload) {
     fileName: message.fileName || message.caption,
     mimetype: message.mimeType || message.mimetype || message.mediaType,
   };
+}
+
+// O UAZAPI/Baileys às vezes manda o texto/legenda como um objeto aninhado
+// (ex: legenda de mídia encaminhada) em vez de string simples. A API da
+// Claude exige que campos "text" sejam sempre string - isso já causou o
+// erro "Input should be a valid string". Essa função garante isso sempre.
+function toSafeString(value) {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 async function handleIncomingMessage(payload) {

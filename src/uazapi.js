@@ -29,10 +29,21 @@ export async function sendWhatsAppMessage(config, to, text) {
 
 export async function downloadMedia(config, fileUrl, fallbackMimetype) {
   if (!fileUrl) {
-    throw new Error("downloadMedia chamado sem fileUrl (mensagem sem mídia?)");
+    throw new Error("downloadMedia chamado sem fileUrl (mensagem sem mídia reconhecida?)");
   }
 
-  const resp = await fetch(fileUrl);
+  let resp;
+  try {
+    resp = await fetch(fileUrl);
+  } catch (err) {
+    let dominio = "desconhecido";
+    try {
+      dominio = new URL(fileUrl).hostname;
+    } catch {
+      // URL inválida mesmo
+    }
+    throw new Error(`Falha de rede ao baixar mídia de "${dominio}": ${err.message}`);
+  }
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
