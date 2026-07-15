@@ -12,10 +12,10 @@ const CALENDAR_IDS = {
   familia: "family05481570382979939457@group.calendar.google.com",
 };
 
-function buildSystemPrompt(taskLists) {
+function buildSystemPrompt(taskLists, taskListsError) {
   const listaTexto = taskLists.length
     ? taskLists.map((l) => `- "${l.title}" → list_id: ${l.id}`).join("\n")
-    : "(não foi possível carregar as listas agora - se precisar criar/consultar tarefa, avise a Bia)";
+    : `(não foi possível carregar as listas agora - erro técnico: "${taskListsError || "desconhecido"}". Se a Bia perguntar sobre tarefas, conte esse erro técnico pra ela em vez de pedir o list_id.)`;
 
   return `Você é a Nina, secretária pessoal via WhatsApp da Bia.
 Você ajuda a marcar eventos na agenda (pessoal ou da família), criar tarefas,
@@ -225,12 +225,14 @@ export async function runNinaAgent(db, config, history, userContentBlocks) {
   ];
 
   let taskLists = [];
+  let taskListsError = null;
   try {
     taskLists = await listTaskLists(db, config);
   } catch (err) {
     console.error("Erro ao buscar listas de tarefas (seguindo sem elas):", err);
+    taskListsError = err.message;
   }
-  const systemPrompt = buildSystemPrompt(taskLists);
+  const systemPrompt = buildSystemPrompt(taskLists, taskListsError);
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const response = await callClaude(config, systemPrompt, messages);
