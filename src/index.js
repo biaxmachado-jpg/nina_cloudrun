@@ -171,6 +171,11 @@ function parseIncoming(payload) {
       message.url ||
       message.image?.url ||
       message.imageMessage?.url,
+    // Muitas APIs de WhatsApp (mídia é E2E-criptografada) já mandam o
+    // conteúdo pronto em base64 direto no payload do webhook, em vez de só
+    // uma URL. Se existir, usamos direto - é bem mais confiável que buscar
+    // o fileURL (que pode apontar pra um arquivo ainda criptografado).
+    fileBase64: message.fileBase64 || message.base64 || message.file || null,
     fileName: message.fileName || message.caption,
     mimetype: message.mimeType || message.mimetype || message.mediaType,
   };
@@ -211,7 +216,11 @@ async function handleIncomingMessage(payload) {
     await sendWhatsAppMessage(config, incoming.from, replyText);
   } catch (err) {
     console.error("Erro ao processar mensagem:", err);
-    const detalhe = (err?.message || String(err)).slice(0, 300);
+    let detalhe = (err?.message || String(err)).slice(0, 300);
+    if (incoming.type !== "text") {
+      const rawMessage = payload.message || payload;
+      detalhe += ` | campos do payload: ${Object.keys(rawMessage).join(", ")}`;
+    }
     await sendWhatsAppMessage(
       config,
       incoming.from,
@@ -220,10 +229,17 @@ async function handleIncomingMessage(payload) {
   }
 }
 
+async function getMediaBase64(incoming) {
+  if (incoming.fileBase64) {
+    return { base64: incoming.fileBase64, mimetype: incoming.mimetype };
+  }
+  return downloadMedia(config, incoming.fileUrl, incoming.mimetype);
+}
+
 async function buildUserContentBlocks(incoming) {
   switch (incoming.type) {
     case "audio": {
-      const { base64 } = await downloadMedia(config, incoming.fileUrl);
+      const { base64 } = await getMediaBase64(incoming);
       const transcript = await transcribeAudio(speechClient, base64);
       if (!transcript) {
         throw new Error(
@@ -233,12 +249,12 @@ async function buildUserContentBlocks(incoming) {
       return [{ type: "text", text: transcript }];
     }
     case "image": {
-      const { base64, mimetype } = await downloadMedia(config, incoming.fileUrl, incoming.mimetype);
+      const { base64, mimetype } = await getMediaBase64(incoming);
       const block = imageToClaudeBlock(base64, mimetype);
       return incoming.text ? [block, { type: "text", text: incoming.text }] : [block];
     }
     case "document": {
-      const { base64, mimetype } = await downloadMedia(config, incoming.fileUrl, incoming.mimetype);
+      const { base64, mimetype } = await getMediaBase64(incoming);
       const docBlock = documentToClaudeBlock(base64, mimetype);
       if (docBlock) {
         return incoming.text ? [docBlock, { type: "text", text: incoming.text }] : [docBlock];
