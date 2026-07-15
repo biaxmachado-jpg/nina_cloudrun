@@ -9,6 +9,9 @@ import { runNinaAgent } from "./claude.js";
 import { refreshGoogleToken } from "./google_auth.js";
 import { sendDailyBriefing } from "./briefing.js";
 import { handleCardapioWebhook } from "./cardapio.js";
+import { listTaskLists } from "./tasks.js";
+import { listEvents } from "./calendar.js";
+import { listMessages } from "./gmail.js";
 
 const app = express();
 app.use(express.json({ limit: "20mb" }));
@@ -100,6 +103,44 @@ app.post("/webhook/cardapio", async (req, res) => {
     console.error("Erro ao processar webhook do cardápio:", err);
     res.status(500).send("erro");
   }
+});
+
+// Endpoint de diagnóstico: mostra erro cru do Google pra Calendar/Gmail/Tasks
+// sem depender da Nina reformular ou do WhatsApp cortar a mensagem. Só abrir
+// a URL no navegador (GET, com o CRON_SECRET na query).
+app.get("/debug/google-status", async (req, res) => {
+  if (req.query.secret !== config.CRON_SECRET) {
+    return res.status(401).send("unauthorized");
+  }
+
+  const result = {};
+
+  try {
+    const lists = await listTaskLists(db, config);
+    result.tasks = { ok: true, lists };
+  } catch (err) {
+    result.tasks = { ok: false, error: err.message };
+  }
+
+  try {
+    const { timeMin, timeMax } = (() => {
+      const d = new Date().toISOString().slice(0, 10);
+      return { timeMin: `${d}T00:00:00-03:00`, timeMax: `${d}T23:59:59-03:00` };
+    })();
+    const events = await listEvents(db, config, "bia.x.machado@gmail.com", timeMin, timeMax);
+    result.calendar = { ok: true, count: events.length };
+  } catch (err) {
+    result.calendar = { ok: false, error: err.message };
+  }
+
+  try {
+    const messages = await listMessages(db, config, "is:unread", 3);
+    result.gmail = { ok: true, count: messages.length };
+  } catch (err) {
+    result.gmail = { ok: false, error: err.message };
+  }
+
+  res.status(200).json(result);
 });
 
 /**
