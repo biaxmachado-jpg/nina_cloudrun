@@ -220,7 +220,9 @@ async function executeCustomTool(db, env, name, input) {
  */
 export async function runNinaAgent(db, config, history, userContentBlocks) {
   const messages = [
-    ...history.map((h) => ({ role: h.role, content: h.content })),
+    ...history
+      .filter((h) => h.content && String(h.content).trim() !== "")
+      .map((h) => ({ role: h.role, content: h.content })),
     { role: "user", content: userContentBlocks },
   ];
 

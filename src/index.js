@@ -257,7 +257,13 @@ async function handleIncomingMessage(payload) {
   try {
     const userContentBlocks = await buildUserContentBlocks(incoming);
     const history = await loadHistory(db, incoming.from);
-    const replyText = await runNinaAgent(db, config, history, userContentBlocks);
+    let replyText = await runNinaAgent(db, config, history, userContentBlocks);
+    if (!replyText) {
+      // Acontece quando a Claude só executa uma ação (ex: criar evento na
+      // agenda) sem nenhum texto de resposta - um content block de texto
+      // vazio quebra a próxima chamada da API ("must be non-empty").
+      replyText = "✅ Feito!";
+    }
 
     const userTextForHistory = incoming.text || `[${incoming.type}]`;
     await saveMessage(db, incoming.from, "user", userTextForHistory);
