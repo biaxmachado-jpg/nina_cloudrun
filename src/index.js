@@ -208,22 +208,26 @@ function parseIncoming(payload) {
 
   return {
     from,
-    type: message.type || "text", // "text" | "audio" | "image" | "document"
-    text: toSafeString(message.text || message.content || message.caption),
+    // BUG ENCONTRADO (payload real confirmado): o UAZAPI manda type:"media"
+    // pra qualquer mídia - o tipo real (image/audio/document) vem em
+    // mediaType. Sem isso, toda mensagem de mídia caía silenciosamente no
+    // caminho de texto vazio, e a Nina "inventava" uma desculpa genérica.
+    type: message.mediaType || message.type || "text",
+    // message.content é um OBJETO pra mensagens de mídia (URL, mediaKey,
+    // etc.) - nunca usar como texto/legenda, só message.text/caption mesmo.
+    text: toSafeString(message.text || message.caption),
     messageId: message.messageid || message.id,
     fileUrl:
       message.fileURL ||
       message.mediaUrl ||
       message.url ||
       message.image?.url ||
-      message.imageMessage?.url,
-    // Muitas APIs de WhatsApp (mídia é E2E-criptografada) já mandam o
-    // conteúdo pronto em base64 direto no payload do webhook, em vez de só
-    // uma URL. Se existir, usamos direto - é bem mais confiável que buscar
-    // o fileURL (que pode apontar pra um arquivo ainda criptografado).
+      message.imageMessage?.url ||
+      message.content?.URL, // formato real confirmado: message.content.URL (link .enc criptografado)
     fileBase64: message.fileBase64 || message.base64 || message.file || null,
     fileName: message.fileName || message.caption,
-    mimetype: message.mimeType || message.mimetype || message.mediaType,
+    mimetype:
+      message.mimeType || message.mimetype || message.content?.mimetype || message.mediaType,
   };
 }
 
@@ -276,22 +280,16 @@ async function handleIncomingMessage(payload) {
 }
 
 async function getMediaBase64(incoming) {
-  // Prioridade 1: o endpoint real do UAZAPI que o n8n antigo usava e
-  // funcionava (/message/download com o messageId) - mídia do WhatsApp é
-  // criptografada, então isso é o caminho correto, não um atalho.
-  if (incoming.messageId) {
-    try {
-      return await downloadMediaByMessageId(config, incoming.messageId);
-    } catch (err) {
-      console.error("Falha em downloadMediaByMessageId, tentando alternativas:", err.message);
-    }
+  // Único caminho confiável: o endpoint real do UAZAPI que o n8n antigo
+  // usava (/message/download com o messageId), que devolve o conteúdo já
+  // decodificado. A fileURL crua do payload aponta pro arquivo ainda
+  // criptografado (confirmado no payload real: link .enc do WhatsApp) -
+  // baixar ela direto "funciona" (não dá erro de rede) mas entrega bytes
+  // criptografados/inúteis, o que é pior que falhar claramente.
+  if (!incoming.messageId) {
+    throw new Error("Mensagem de mídia sem messageId - não há como baixar o conteúdo.");
   }
-  // Prioridade 2: base64 embutido direto no payload do webhook, se existir.
-  if (incoming.fileBase64) {
-    return { base64: incoming.fileBase64, mimetype: incoming.mimetype };
-  }
-  // Prioridade 3 (fallback menos confiável): baixar a fileURL crua direto.
-  return downloadMedia(config, incoming.fileUrl, incoming.mimetype);
+  return downloadMediaByMessageId(config, incoming.messageId);
 }
 
 async function buildUserContentBlocks(incoming) {
