@@ -10,6 +10,7 @@ export async function transcribeAudio(speechClient, base64Audio) {
   // arquivo pode variar (16000 é o mais comum em notas de voz, mas alguns
   // clientes mandam 48000). Tenta as duas em vez de assumir uma fixa.
   const sampleRatesToTry = [16000, 48000];
+  const attemptErrors = [];
 
   for (const sampleRateHertz of sampleRatesToTry) {
     try {
@@ -28,13 +29,20 @@ export async function transcribeAudio(speechClient, base64Audio) {
         .trim();
 
       if (transcript) return transcript;
+      attemptErrors.push(`sampleRateHertz=${sampleRateHertz}: sem resultados (0 results)`);
     } catch (err) {
       console.error(`Falha na transcrição com sampleRateHertz=${sampleRateHertz}:`, err.message);
-      // tenta a próxima taxa
+      attemptErrors.push(`sampleRateHertz=${sampleRateHertz}: ${err.message}`);
     }
   }
 
-  return ""; // nenhuma taxa funcionou / áudio sem fala reconhecível
+  // Nenhuma taxa funcionou / áudio sem fala reconhecível - devolve os
+  // detalhes de cada tentativa junto pra dar pra diagnosticar sem log.
+  const err = new Error(
+    `Speech-to-Text não reconheceu nada em nenhuma tentativa. Detalhes: ${attemptErrors.join(" | ")}`
+  );
+  err.isEmptyTranscript = true;
+  throw err;
 }
 
 export function imageToClaudeBlock(base64Image, mimetype) {
