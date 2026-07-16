@@ -246,7 +246,14 @@ export async function runNinaAgent(db, config, history, userContentBlocks) {
       return textBlocks.map((b) => b.text).join("\n").trim();
     }
 
-    messages.push({ role: "assistant", content: response.content });
+    // Remove blocos de texto vazio antes de ecoar de volta pra próxima
+    // rodada - a API rejeita text content blocks vazios ("must be
+    // non-empty"), e a Claude às vezes manda um texto vazio junto com uma
+    // chamada de ferramenta.
+    const sanitizedContent = response.content.filter(
+      (b) => !(b.type === "text" && (!b.text || b.text.trim() === ""))
+    );
+    messages.push({ role: "assistant", content: sanitizedContent });
 
     const toolResults = [];
     for (const block of toolUseBlocks) {
