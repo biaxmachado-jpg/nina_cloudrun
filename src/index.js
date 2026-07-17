@@ -8,6 +8,7 @@ import { transcribeAudio, imageToClaudeBlock, documentToClaudeBlock } from "./me
 import { runNinaAgent } from "./claude.js";
 import { refreshGoogleToken } from "./google_auth.js";
 import { sendDailyBriefing } from "./briefing.js";
+import { sendWeeklyDigest } from "./weekly_digest.js";
 import { handleCardapioWebhook } from "./cardapio.js";
 import { listTaskLists } from "./tasks.js";
 import { listEvents } from "./calendar.js";
@@ -83,6 +84,22 @@ app.post("/cron/daily-briefing", async (req, res) => {
   }
 });
 
+// Cloud Scheduler chama esse endpoint toda sexta às 9h - digest semanal de
+// conteúdo personalizado (migrado do n8n "Resumo Semanal - Conteúdos
+// Personalizado"), usando Claude com web search nativo.
+app.post("/cron/weekly-digest", async (req, res) => {
+  if (req.header("x-cron-secret") !== config.CRON_SECRET) {
+    return res.status(401).send("unauthorized");
+  }
+  try {
+    await sendWeeklyDigest(config);
+    res.status(200).send("ok");
+  } catch (err) {
+    console.error("Erro ao enviar digest semanal:", err);
+    res.status(500).send("erro");
+  }
+});
+
 // Recebe a lista de compras do app "Cardápio da Casa"
 // (https://cardapiocasa-eb828.web.app) e encaminha pro WhatsApp. Roda
 // direto do navegador da Bia, então precisamos liberar CORS pro domínio do
@@ -107,6 +124,19 @@ app.post("/webhook/cardapio", async (req, res) => {
   } catch (err) {
     console.error("Erro ao processar webhook do cardápio:", err);
     res.status(500).send("erro");
+  }
+});
+
+// Testa o digest semanal na hora, sem esperar sexta-feira.
+app.get("/debug/test-weekly-digest", async (req, res) => {
+  if (req.query.secret !== config.CARDAPIO_WEBHOOK_SECRET) {
+    return res.status(401).send("unauthorized");
+  }
+  try {
+    const digest = await sendWeeklyDigest(config);
+    res.status(200).json({ ok: true, digest });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
