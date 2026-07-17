@@ -6,21 +6,22 @@
  */
 
 export async function transcribeAudio(speechClient, base64Audio) {
-  // O WhatsApp/Baileys manda OGG_OPUS, mas a taxa de amostragem real do
-  // arquivo pode variar (16000 é o mais comum em notas de voz, mas alguns
-  // clientes mandam 48000). Tenta as duas em vez de assumir uma fixa.
-  const sampleRatesToTry = [16000, 48000];
+  // Confirmado via erro real do Google: o endpoint de download do UAZAPI
+  // entrega o áudio em MP3 (não OGG_OPUS como se assumia). Pra MP3, a
+  // sampleRateHertz é opcional - deixamos o Google detectar automático,
+  // com um fallback explícito só por garantia.
+  const attempts = [
+    { encoding: "MP3" }, // sample rate automático
+    { encoding: "MP3", sampleRateHertz: 44100 },
+    { encoding: "MP3", sampleRateHertz: 48000 },
+  ];
   const attemptErrors = [];
 
-  for (const sampleRateHertz of sampleRatesToTry) {
+  for (const audioConfig of attempts) {
     try {
       const [response] = await speechClient.recognize({
         audio: { content: base64Audio },
-        config: {
-          encoding: "OGG_OPUS",
-          sampleRateHertz,
-          languageCode: "pt-BR",
-        },
+        config: { ...audioConfig, languageCode: "pt-BR" },
       });
 
       const transcript = (response.results || [])
@@ -29,15 +30,13 @@ export async function transcribeAudio(speechClient, base64Audio) {
         .trim();
 
       if (transcript) return transcript;
-      attemptErrors.push(`sampleRateHertz=${sampleRateHertz}: sem resultados (0 results)`);
+      attemptErrors.push(`${JSON.stringify(audioConfig)}: sem resultados (0 results)`);
     } catch (err) {
-      console.error(`Falha na transcrição com sampleRateHertz=${sampleRateHertz}:`, err.message);
-      attemptErrors.push(`sampleRateHertz=${sampleRateHertz}: ${err.message}`);
+      console.error(`Falha na transcrição com ${JSON.stringify(audioConfig)}:`, err.message);
+      attemptErrors.push(`${JSON.stringify(audioConfig)}: ${err.message}`);
     }
   }
 
-  // Nenhuma taxa funcionou / áudio sem fala reconhecível - devolve os
-  // detalhes de cada tentativa junto pra dar pra diagnosticar sem log.
   const err = new Error(
     `Speech-to-Text não reconheceu nada em nenhuma tentativa. Detalhes: ${attemptErrors.join(" | ")}`
   );
