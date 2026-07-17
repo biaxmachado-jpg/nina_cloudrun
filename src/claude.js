@@ -2,6 +2,8 @@ import { createTask, listTasks, listTaskLists } from "./tasks.js";
 import { listEvents, createEvent } from "./calendar.js";
 import { listMessages, sendMessage } from "./gmail.js";
 import { addRecipe } from "./cardapio_recipes.js";
+import { sendWhatsAppMedia } from "./uazapi.js";
+import { generateQuoteImage } from "./quote_image.js";
 
 const CLAUDE_MODEL = "claude-sonnet-4-6";
 const MAX_TOOL_ROUNDS = 5;
@@ -19,9 +21,10 @@ function buildSystemPrompt(taskLists, taskListsError) {
 
   return `Você é a Nina, secretária pessoal via WhatsApp da Bia.
 Você ajuda a marcar eventos na agenda (pessoal ou da família), criar tarefas,
-consultar e-mails, e adicionar receitas no app Cardápio da Casa. Seja direta,
-objetiva e use um tom natural de mensagem de WhatsApp - sem formalidade
-excessiva.
+consultar e-mails, adicionar receitas no app Cardápio da Casa, e gerar
+imagens de citação (quote cards) para LinkedIn/Instagram a partir de uma
+frase que ela mandar. Seja direta, objetiva e use um tom natural de
+mensagem de WhatsApp - sem formalidade excessiva.
 
 Calendários disponíveis:
 - Pessoal: "${CALENDAR_IDS.pessoal}"
@@ -146,6 +149,23 @@ const CUSTOM_TOOLS = [
       required: ["name"],
     },
   },
+  {
+    name: "generate_quote_image",
+    description:
+      "Gera uma imagem estilo 'quote card' (frase estilizada num fundo colorido) pronta pra postar no LinkedIn ou Instagram, e já manda a imagem pro WhatsApp da Bia. Use quando ela pedir pra criar uma imagem com uma frase/citação.",
+    input_schema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "A frase/citação que vai aparecer na imagem" },
+        signature: {
+          type: "string",
+          description: "Assinatura opcional no rodapé, ex: 'Bia Machado' (deixe vazio se não pedido)",
+        },
+        caption: { type: "string", description: "Legenda opcional a enviar junto da imagem no WhatsApp" },
+      },
+      required: ["text"],
+    },
+  },
 ];
 
 async function callClaude(env, systemPrompt, messages) {
@@ -173,7 +193,7 @@ async function callClaude(env, systemPrompt, messages) {
   return resp.json();
 }
 
-async function executeCustomTool(db, env, name, input) {
+async function executeCustomTool(db, env, name, input, whatsappNumber) {
   switch (name) {
     case "calendar_list_events": {
       const calendarId = CALENDAR_IDS[input.calendar];
@@ -210,6 +230,11 @@ async function executeCustomTool(db, env, name, input) {
       const result = await addRecipe(env, { name: input.name, url: input.url, text: input.text });
       return JSON.stringify(result);
     }
+    case "generate_quote_image": {
+      const { base64 } = generateQuoteImage(input.text, { signature: input.signature });
+      await sendWhatsAppMedia(env, whatsappNumber, "image", base64, input.caption);
+      return JSON.stringify({ ok: true, message: "Imagem gerada e enviada." });
+    }
     default:
       return JSON.stringify({ error: `Ferramenta desconhecida: ${name}` });
   }
@@ -218,7 +243,7 @@ async function executeCustomTool(db, env, name, input) {
 /**
  * db = instância do Firestore, config = variáveis de ambiente/secrets.
  */
-export async function runNinaAgent(db, config, history, userContentBlocks) {
+export async function runNinaAgent(db, config, history, userContentBlocks, whatsappNumber) {
   const messages = [
     ...history
       .filter((h) => h.content && String(h.content).trim() !== "")
@@ -259,7 +284,7 @@ export async function runNinaAgent(db, config, history, userContentBlocks) {
     for (const block of toolUseBlocks) {
       let result;
       try {
-        result = await executeCustomTool(db, config, block.name, block.input);
+        result = await executeCustomTool(db, config, block.name, block.input, whatsappNumber);
       } catch (err) {
         console.error(`Erro na ferramenta ${block.name}:`, err);
         result = JSON.stringify({

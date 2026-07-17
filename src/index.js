@@ -287,7 +287,7 @@ async function handleIncomingMessage(payload) {
   try {
     const userContentBlocks = await buildUserContentBlocks(incoming);
     const history = await loadHistory(db, incoming.from);
-    let replyText = await runNinaAgent(db, config, history, userContentBlocks);
+    let replyText = await runNinaAgent(db, config, history, userContentBlocks, incoming.from);
     if (!replyText) {
       // Acontece quando a Claude só executa uma ação (ex: criar evento na
       // agenda) sem nenhum texto de resposta - um content block de texto

@@ -28,6 +28,31 @@ export async function sendWhatsAppMessage(config, to, text) {
 }
 
 /**
+ * Envia mídia (imagem/vídeo/áudio/documento) via UAZAPI. `file` aceita URL
+ * pública OU uma string base64 pura (sem prefixo data:) - endpoint real
+ * confirmado no node n8n-nodes-uazapi: POST /send/media.
+ */
+export async function sendWhatsAppMedia(config, to, mediaType, fileBase64, caption) {
+  const url = `${config.UAZAPI_BASE_URL}/send/media`;
+
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      token: config.UAZAPI_TOKEN,
+    },
+    body: JSON.stringify({ number: to, type: mediaType, file: fileBase64, caption }),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => "");
+    throw new Error(`Falha ao enviar mídia UAZAPI (${resp.status}): ${errText}`);
+  }
+
+  return resp.json().catch(() => ({}));
+}
+
+/**
  * Baixa mídia usando o endpoint real do UAZAPI para isso (descoberto a
  * partir do node "n8n-nodes-uazapi" usado no fluxo antigo: POST
  * /message/download com { id: messageId }). Mídia do WhatsApp é
