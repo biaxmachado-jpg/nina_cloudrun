@@ -330,7 +330,15 @@ async function getMediaBase64(incoming) {
 
 async function buildUserContentBlocks(incoming) {
   switch (incoming.type) {
-    case "audio": {
+    case "audio":
+    case "ptt":
+    case "myaudio": {
+      // BUG ENCONTRADO: a UAZAPI manda mediaType "ptt" pra nota de voz
+      // gravada no microfone do WhatsApp (o caso comum) e "audio" só pra
+      // arquivo de áudio enviado como anexo. Tratando só "audio", toda nota
+      // de voz caía no caso default (texto vazio, já que nota de voz não
+      // tem legenda) - e um content block de texto vazio quebra a chamada
+      // da API da Claude ("must be non-empty").
       const { base64 } = await getMediaBase64(incoming);
       const transcript = await transcribeAudio(speechClient, base64);
       return [{ type: "text", text: transcript }];
