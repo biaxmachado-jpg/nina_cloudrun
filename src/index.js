@@ -40,18 +40,27 @@ const config = {
 
 app.get("/health", (req, res) => res.status(200).send("ok"));
 
-app.post("/webhook", (req, res) => {
-  // Responde rápido pro UAZAPI (evita timeout/retry duplicado) e processa
-  // o resto em background.
-  res.status(200).send("ok");
+app.post("/webhook", async (req, res) => {
   // Captura o payload bruto pra diagnóstico (temporário) - deixa ver
   // exatamente os campos reais que o UAZAPI manda, sem precisar adivinhar.
   db.collection("debug_payloads")
     .add({ payload: req.body, receivedAt: new Date() })
     .catch((err) => console.error("Erro ao salvar debug_payload:", err));
-  handleIncomingMessage(req.body).catch((err) => {
+
+  // BUG ENCONTRADO: responder "ok" antes de processar fazia o Cloud Run
+  // cortar a CPU da instância logo após a resposta (por padrão, CPU só é
+  // alocada durante o processamento de uma requisição) - o processamento
+  // em background (download de mídia, transcrição, chamada à Claude)
+  // ficava congelado sem CPU, sem terminar e sem gerar erro nenhum. Por
+  // isso a Nina "engolia" a mensagem de áudio sem responder e sem avisar.
+  // Agora processamos tudo antes de responder; claimMessage() já protege
+  // contra duplicata se o UAZAPI reenviar o webhook por demora.
+  try {
+    await handleIncomingMessage(req.body);
+  } catch (err) {
     console.error("Erro ao processar mensagem:", err);
-  });
+  }
+  res.status(200).send("ok");
 });
 
 // Cloud Scheduler chama esse endpoint periodicamente pra renovar o token do
