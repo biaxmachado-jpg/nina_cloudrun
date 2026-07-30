@@ -7,10 +7,32 @@
  * downloadMedia() aqui só baixa essa URL diretamente e converte pra base64.
  */
 
+// Sem timeout explícito, uma chamada de rede que trava (UAZAPI lenta, sem
+// resposta, conexão pendurada) fica esperando pra sempre - o Cloud Run
+// acaba matando a requisição por timeout do serviço, sem nosso código
+// nunca chegar no catch, e por isso a Nina "engole" a mensagem em silêncio
+// total (sem erro, sem resposta). Esse helper garante que toda chamada
+// falha de forma explícita e rápida, virando um erro que a gente consegue
+// reportar de volta pro WhatsApp.
+async function fetchWithTimeout(url, options, timeoutMs = 25000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error(`Timeout de ${timeoutMs / 1000}s ao chamar ${url}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function sendWhatsAppMessage(config, to, text) {
   const url = `${config.UAZAPI_BASE_URL}/send/text`;
 
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -35,7 +57,7 @@ export async function sendWhatsAppMessage(config, to, text) {
 export async function sendWhatsAppMedia(config, to, mediaType, fileBase64, caption) {
   const url = `${config.UAZAPI_BASE_URL}/send/media`;
 
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -62,7 +84,7 @@ export async function sendWhatsAppMedia(config, to, mediaType, fileBase64, capti
 export async function downloadMediaByMessageId(config, messageId) {
   const url = `${config.UAZAPI_BASE_URL}/message/download`;
 
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -101,7 +123,7 @@ export async function downloadMedia(config, fileUrl, fallbackMimetype) {
 
   let resp;
   try {
-    resp = await fetch(fileUrl);
+    resp = await fetchWithTimeout(fileUrl);
   } catch (err) {
     let dominio = "desconhecido";
     try {

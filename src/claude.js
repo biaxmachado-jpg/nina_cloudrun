@@ -169,21 +169,37 @@ const CUSTOM_TOOLS = [
 ];
 
 async function callClaude(env, systemPrompt, messages) {
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages,
-      tools: CUSTOM_TOOLS,
-    }),
-  });
+  // Timeout explícito - sem isso, uma chamada travada (rede, API fora do ar)
+  // trava o processamento inteiro em silêncio até o Cloud Run matar a
+  // requisição sem chance de avisar a Bia.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  let resp;
+  try {
+    resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages,
+        tools: CUSTOM_TOOLS,
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error("Timeout de 60s ao chamar a API da Claude");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");

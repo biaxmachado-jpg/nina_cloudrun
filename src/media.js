@@ -19,10 +19,13 @@ export async function transcribeAudio(speechClient, base64Audio) {
 
   for (const audioConfig of attempts) {
     try {
-      const [response] = await speechClient.recognize({
-        audio: { content: base64Audio },
-        config: { ...audioConfig, languageCode: "pt-BR" },
-      });
+      const [response] = await speechClient.recognize(
+        {
+          audio: { content: base64Audio },
+          config: { ...audioConfig, languageCode: "pt-BR" },
+        },
+        { timeout: 30000 } // 30s - sem isso, uma chamada travada fica pendurada até o Cloud Run matar a requisição em silêncio
+      );
 
       const transcript = (response.results || [])
         .map((r) => r.alternatives[0]?.transcript || "")
