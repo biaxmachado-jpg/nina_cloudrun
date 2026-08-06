@@ -2,6 +2,7 @@
  * Gmail via REST direto (mesmo motivo do calendar.js).
  */
 import { getValidAccessToken } from "./google_auth.js";
+import { fetchWithTimeout } from "./fetch_timeout.js";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
@@ -11,7 +12,7 @@ export async function listMessages(db, config, query, maxResults = 10) {
   const params = new URLSearchParams({ maxResults: String(maxResults) });
   if (query) params.set("q", query);
 
-  const listResp = await fetch(`${GMAIL_API}/messages?${params}`, {
+  const listResp = await fetchWithTimeout(`${GMAIL_API}/messages?${params}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
@@ -26,7 +27,7 @@ export async function listMessages(db, config, query, maxResults = 10) {
   // Busca o resumo (metadata) de cada mensagem em paralelo
   const messages = await Promise.all(
     ids.map(async (id) => {
-      const resp = await fetch(
+      const resp = await fetchWithTimeout(
         `${GMAIL_API}/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -64,7 +65,7 @@ export async function sendMessage(db, config, to, subject, body) {
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 
-  const resp = await fetch(`${GMAIL_API}/messages/send`, {
+  const resp = await fetchWithTimeout(`${GMAIL_API}/messages/send`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,

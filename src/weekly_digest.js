@@ -6,6 +6,7 @@
  * de tool round-trip como as ferramentas customizadas do agente principal).
  */
 import { sendWhatsAppMessage } from "./uazapi.js";
+import { fetchWithTimeout } from "./fetch_timeout.js";
 
 const CLAUDE_MODEL = "claude-sonnet-4-6";
 
@@ -45,20 +46,26 @@ export async function buildWeeklyDigest(config) {
     timeZone: "America/Sao_Paulo",
   });
 
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": config.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
+  const resp = await fetchWithTimeout(
+    "https://api.anthropic.com/v1/messages",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": config.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 2048,
+        messages: [{ role: "user", content: PROMPT.replace("{{data de hoje}}", hoje) }],
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+      }),
     },
-    body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: 2048,
-      messages: [{ role: "user", content: PROMPT.replace("{{data de hoje}}", hoje) }],
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
-    }),
-  });
+    // Digest usa web_search nativo com várias autoras - pode levar mais
+    // tempo que uma chamada normal da Claude, então usamos um timeout maior.
+    90000
+  );
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");

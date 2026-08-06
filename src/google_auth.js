@@ -4,10 +4,12 @@
  * tasks, então o mesmo token de acesso serve pras três APIs.
  */
 
+import { fetchWithTimeout } from "./fetch_timeout.js";
+
 const TOKEN_DOC = "system/google_token"; // documento único no Firestore
 
 export async function refreshGoogleToken(db, config) {
-  const resp = await fetch("https://oauth2.googleapis.com/token", {
+  const resp = await fetchWithTimeout("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({

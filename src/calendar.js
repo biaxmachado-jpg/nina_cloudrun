@@ -5,6 +5,7 @@
  * automaticamente aqui).
  */
 import { getValidAccessToken } from "./google_auth.js";
+import { fetchWithTimeout } from "./fetch_timeout.js";
 
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 
@@ -18,7 +19,7 @@ export async function listEvents(db, config, calendarId, timeMin, timeMax) {
   });
   if (timeMax) params.set("timeMax", timeMax);
 
-  const resp = await fetch(
+  const resp = await fetchWithTimeout(
     `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
@@ -35,7 +36,7 @@ export async function listEvents(db, config, calendarId, timeMin, timeMax) {
 export async function createEvent(db, config, calendarId, event) {
   const accessToken = await getValidAccessToken(db, config);
 
-  const resp = await fetch(
+  const resp = await fetchWithTimeout(
     `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events`,
     {
       method: "POST",

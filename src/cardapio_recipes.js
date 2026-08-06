@@ -9,6 +9,7 @@
  * sem tocar em menus/shopping/tags pra não colidir com o app.
  */
 import { JWT } from "google-auth-library";
+import { fetchWithTimeout } from "./fetch_timeout.js";
 
 const CARDAPIO_PROJECT_ID = "cardapiocasa-eb828";
 const DOC_URL = `https://firestore.googleapis.com/v1/projects/${CARDAPIO_PROJECT_ID}/databases/(default)/documents/cardapio/main`;
@@ -68,7 +69,7 @@ function fromFirestoreValue(v) {
 }
 
 async function getCurrentRecipes(token) {
-  const resp = await fetch(`${DOC_URL}?mask.fieldPaths=recipes`, {
+  const resp = await fetchWithTimeout(`${DOC_URL}?mask.fieldPaths=recipes`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (resp.status === 404) return []; // documento ainda não existe / campo vazio
@@ -93,7 +94,7 @@ export async function addRecipe(config, { name, url, text, tags = [] }) {
   };
   const updated = [...current, newRecipe];
 
-  const resp = await fetch(`${DOC_URL}?updateMask.fieldPaths=recipes`, {
+  const resp = await fetchWithTimeout(`${DOC_URL}?updateMask.fieldPaths=recipes`, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ fields: { recipes: toFirestoreValue(updated) } }),
