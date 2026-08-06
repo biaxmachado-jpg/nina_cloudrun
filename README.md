@@ -115,3 +115,4 @@ src/
 Dockerfile    → container pro Cloud Run
 .github/workflows/deploy.yml → build + deploy automático a cada push na main
 ```
+
