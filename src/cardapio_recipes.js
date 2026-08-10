@@ -81,6 +81,94 @@ async function getCurrentRecipes(token) {
   return data.fields?.recipes ? fromFirestoreValue(data.fields.recipes) : [];
 }
 
+async function getRecipesAndMenus(token) {
+  const resp = await fetchWithTimeout(`${DOC_URL}?mask.fieldPaths=recipes&mask.fieldPaths=menus`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (resp.status === 404) return { recipes: [], menus: {} };
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => "");
+    throw new Error(`Falha ao ler cardápio (${resp.status}): ${errText}`);
+  }
+  const data = await resp.json();
+  return {
+    recipes: data.fields?.recipes ? fromFirestoreValue(data.fields.recipes) : [],
+    menus: data.fields?.menus ? fromFirestoreValue(data.fields.menus) : {},
+  };
+}
+
+/**
+ * Slots fixos do cardápio semanal do app (ver DAYS em index.html):
+ *   seg -> cozinha segunda, serve segunda e terça
+ *   qua -> cozinha quarta, serve quarta e quinta
+ *   sex -> cozinha sexta, serve fim de semana
+ * O app NÃO guarda por data específica, só por esses 3 slots que se
+ * repetem toda semana.
+ */
+const VALID_MENU_DAYS = ["seg", "qua", "sex"];
+
+/**
+ * Monta/atualiza o cardápio de um dos 3 slots (seg/qua/sex): define quais
+ * pratos vão ser feitos e uma observação pra cozinheira. Pratos que já
+ * existem no array `recipes` (por nome, case-insensitive) são reaproveitados;
+ * pratos novos são criados automaticamente (sem link/texto/tags).
+ */
+export async function setMenu(config, { day, dishes, notes }) {
+  if (!VALID_MENU_DAYS.includes(day)) {
+    throw new Error(`Dia inválido "${day}" - use "seg", "qua" ou "sex".`);
+  }
+  const cleanDishes = (dishes || []).map((d) => String(d).trim()).filter(Boolean);
+  if (cleanDishes.length === 0) {
+    throw new Error("Preciso de pelo menos um prato pra montar o cardápio do dia.");
+  }
+
+  const token = await getAccessToken(config);
+  const { recipes, menus } = await getRecipesAndMenus(token);
+
+  const recipeIds = [];
+  let recipesChanged = false;
+  for (const dishName of cleanDishes) {
+    const existing = recipes.find((r) => (r.name || "").toLowerCase() === dishName.toLowerCase());
+    if (existing) {
+      recipeIds.push(existing.id);
+    } else {
+      const newRecipe = {
+        id: "nina" + Date.now() + Math.floor(Math.random() * 1000),
+        name: dishName,
+        url: "",
+        text: "",
+        tags: [],
+      };
+      recipes.push(newRecipe);
+      recipeIds.push(newRecipe.id);
+      recipesChanged = true;
+    }
+  }
+
+  menus[day] = { recipeIds, notes: notes || "" };
+
+  const fields = { menus: toFirestoreValue(menus) };
+  const maskFields = ["menus"];
+  if (recipesChanged) {
+    fields.recipes = toFirestoreValue(recipes);
+    maskFields.push("recipes");
+  }
+  const maskQuery = maskFields.map((f) => `updateMask.fieldPaths=${f}`).join("&");
+
+  const resp = await fetchWithTimeout(`${DOC_URL}?${maskQuery}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => "");
+    throw new Error(`Falha ao salvar cardápio (${resp.status}): ${errText}`);
+  }
+
+  return { day, dishes: cleanDishes, notes: notes || "" };
+}
+
 export async function addRecipe(config, { name, url, text, tags = [] }) {
   const token = await getAccessToken(config);
   const current = await getCurrentRecipes(token);
