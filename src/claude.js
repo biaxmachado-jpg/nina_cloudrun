@@ -1,7 +1,7 @@
 import { createTask, listTasks, listTaskLists } from "./tasks.js";
 import { listEvents, createEvent } from "./calendar.js";
 import { listMessages, sendMessage } from "./gmail.js";
-import { addRecipe } from "./cardapio_recipes.js";
+import { addRecipe, setMenu } from "./cardapio_recipes.js";
 import { sendWhatsAppMedia } from "./uazapi.js";
 import { generateQuoteImage } from "./quote_image.js";
 
@@ -155,6 +155,31 @@ const CUSTOM_TOOLS = [
     },
   },
   {
+    name: "cardapio_set_menu",
+    description:
+      "Define o cardápio (pratos do jantar) de um dos 3 dias fixos do app Cardápio da Casa, pra cozinheira ver o que fazer. O app tem só 3 slots por semana: 'seg' (cozinha na segunda, serve segunda e terça), 'qua' (cozinha na quarta, serve quarta e quinta), 'sex' (cozinha na sexta, serve o fim de semana). Use quando a Bia mandar o que quer que a empregada cozinhe em algum desses dias. Se ela mencionar terça/quinta/sábado/domingo, mapeie pro slot correspondente (seg/qua/sex). Pratos com nomes iguais a receitas já existentes são reaproveitados; nomes novos criam receitas novas automaticamente.",
+    input_schema: {
+      type: "object",
+      properties: {
+        day: {
+          type: "string",
+          enum: ["seg", "qua", "sex"],
+          description: "Slot do cardápio: seg, qua ou sex",
+        },
+        dishes: {
+          type: "array",
+          items: { type: "string" },
+          description: "Lista dos pratos do dia, ex: ['Frango ao requeijão', 'Salada']",
+        },
+        notes: {
+          type: "string",
+          description: "Observação/instrução pra cozinheira, ex: 'Deixar o frango marinando desde cedo'",
+        },
+      },
+      required: ["day", "dishes"],
+    },
+  },
+  {
     name: "generate_quote_image",
     description:
       "Gera uma imagem estilo 'quote card' (frase estilizada num fundo colorido) pronta pra postar no LinkedIn ou Instagram, e já manda a imagem pro WhatsApp da Bia. Use quando ela pedir pra criar uma imagem com uma frase/citação.",
@@ -249,6 +274,10 @@ async function executeCustomTool(db, env, name, input, whatsappNumber) {
     }
     case "cardapio_add_recipe": {
       const result = await addRecipe(env, { name: input.name, url: input.url, text: input.text });
+      return JSON.stringify(result);
+    }
+    case "cardapio_set_menu": {
+      const result = await setMenu(env, { day: input.day, dishes: input.dishes, notes: input.notes });
       return JSON.stringify(result);
     }
     case "generate_quote_image": {
