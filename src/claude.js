@@ -4,6 +4,7 @@ import { listMessages, sendMessage } from "./gmail.js";
 import { addRecipe, setMenu } from "./cardapio_recipes.js";
 import { sendWhatsAppMedia } from "./uazapi.js";
 import { generateQuoteImage } from "./quote_image.js";
+import { readPainel, PAINEL_SECOES } from "./painel.js";
 
 const CLAUDE_MODEL = "claude-sonnet-4-6";
 const MAX_TOOL_ROUNDS = 5;
@@ -21,7 +22,9 @@ function buildSystemPrompt(taskLists, taskListsError) {
 
   return `Você é a Nina, secretária pessoal via WhatsApp da Bia.
 Você ajuda a marcar eventos na agenda (pessoal ou da família), criar tarefas,
-consultar e-mails, adicionar receitas no app Cardápio da Casa, e gerar
+consultar e-mails, adicionar receitas no app Cardápio da Casa, ler o
+"Meu Painel" (painel pessoal dela com pendências, hábitos, compromissos,
+notas/planos e finanças), e gerar
 imagens de citação (quote cards) para LinkedIn/Instagram a partir de uma
 frase que ela mandar. Seja direta, objetiva e use um tom natural de
 mensagem de WhatsApp - sem formalidade excessiva.
@@ -51,6 +54,12 @@ ${listaTexto}
 Se a Bia não disser qual lista usar, escolha a mais apropriada pelo contexto
 (ex: assunto de compras → lista de compras, assunto de casa → "Casa", etc.)
 e mencione qual lista você escolheu na resposta.
+
+Quando a Bia perguntar sobre as pendências, hábitos, compromissos, notas ou
+finanças do painel dela, use painel_ler. Os dados vêm da última cópia que
+ela fez no painel: sempre diga de quando é essa cópia, e se for de mais de
+um dia atrás, sugira que ela toque em "Fazer nova" cópia no painel pra você
+ver o que está atualizado.
 
 Se uma ferramenta retornar um erro, não trave a conversa - avise brevemente
 que aquela ação específica não funcionou agora e continue ajudando com o
@@ -180,6 +189,26 @@ const CUSTOM_TOOLS = [
     },
   },
   {
+    name: "painel_ler",
+    description:
+      "Lê o 'Meu Painel', o painel pessoal da Bia (app no claude.ai), a partir da cópia mais recente salva no Google Drive. Use quando ela perguntar das pendências/tarefas do painel (listas TO DO!, Casa, Aguardando retorno, Longo prazo, Receber $, Comprar), hábitos, compromissos, notas/planos ou finanças (contas, cartões, extrato, compras no cartão). Só leitura.",
+    input_schema: {
+      type: "object",
+      properties: {
+        secoes: {
+          type: "array",
+          items: { type: "string", enum: PAINEL_SECOES },
+          description:
+            "Abas a ler. Se omitido, lê Pendências, Hábitos, Compromissos e Planos. Peça as abas de finanças só quando a pergunta for sobre dinheiro.",
+        },
+        incluir_feitas: {
+          type: "boolean",
+          description: "Se true, inclui pendências já concluídas (padrão: só as abertas)",
+        },
+      },
+    },
+  },
+  {
     name: "generate_quote_image",
     description:
       "Gera uma imagem estilo 'quote card' (frase estilizada num fundo colorido) pronta pra postar no LinkedIn ou Instagram, e já manda a imagem pro WhatsApp da Bia. Use quando ela pedir pra criar uma imagem com uma frase/citação.",
@@ -278,6 +307,16 @@ async function executeCustomTool(db, env, name, input, whatsappNumber) {
     }
     case "cardapio_set_menu": {
       const result = await setMenu(env, { day: input.day, dishes: input.dishes, notes: input.notes });
+      return JSON.stringify(result);
+    }
+    case "painel_ler": {
+      // O painel tem dados pessoais e financeiros: só a própria Bia pode ler,
+      // mesmo que outra pessoa mande mensagem pra Nina.
+      const digits = (n) => String(n || "").replace(/\D/g, "");
+      if (!env.OWNER_WHATSAPP_NUMBER || digits(whatsappNumber) !== digits(env.OWNER_WHATSAPP_NUMBER)) {
+        return JSON.stringify({ error: true, message: "O painel pessoal só pode ser lido pela Bia." });
+      }
+      const result = await readPainel(env, { secoes: input.secoes, apenasAbertas: !input.incluir_feitas });
       return JSON.stringify(result);
     }
     case "generate_quote_image": {
