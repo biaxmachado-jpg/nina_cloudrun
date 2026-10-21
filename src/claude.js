@@ -4,7 +4,7 @@ import { listMessages, sendMessage } from "./gmail.js";
 import { addRecipe, setMenu } from "./cardapio_recipes.js";
 import { sendWhatsAppMedia } from "./uazapi.js";
 import { generateQuoteImage } from "./quote_image.js";
-import { readPainel, PAINEL_SECOES } from "./painel.js";
+import { readPainel, writePainel, PAINEL_SECOES, PAINEL_ACOES } from "./painel.js";
 
 const CLAUDE_MODEL = "claude-sonnet-4-6";
 const MAX_TOOL_ROUNDS = 5;
@@ -22,9 +22,9 @@ function buildSystemPrompt(taskLists, taskListsError) {
 
   return `Você é a Nina, secretária pessoal via WhatsApp da Bia.
 Você ajuda a marcar eventos na agenda (pessoal ou da família), criar tarefas,
-consultar e-mails, adicionar receitas no app Cardápio da Casa, ler o
-"Meu Painel" (painel pessoal dela com pendências, hábitos, compromissos,
-notas/planos e finanças), e gerar
+consultar e-mails, adicionar receitas no app Cardápio da Casa, ler e
+escrever no "Meu Painel" (painel pessoal dela com pendências, hábitos,
+compromissos, notas/planos e finanças), e gerar
 imagens de citação (quote cards) para LinkedIn/Instagram a partir de uma
 frase que ela mandar. Seja direta, objetiva e use um tom natural de
 mensagem de WhatsApp - sem formalidade excessiva.
@@ -60,6 +60,13 @@ finanças do painel dela, use painel_ler. Os dados vêm da última cópia que
 ela fez no painel: sempre diga de quando é essa cópia, e se for de mais de
 um dia atrás, sugira que ela toque em "Fazer nova" cópia no painel pra você
 ver o que está atualizado.
+
+Quando a Bia pedir pra anotar/mudar algo NO PAINEL (nova pendência, marcar
+pendência como feita, marcar hábito, compromisso do painel, nota ou item numa
+lista, gasto/entrada), use painel_escrever. A mudança entra no painel quando
+ela abrir o Meu Painel: avise isso numa frase curta. Se ela não disser se é
+no painel ou no Google Tasks/Agenda, e o assunto já existe no painel (ex:
+uma lista dele, um hábito), prefira o painel; na dúvida, pergunte.
 
 Se uma ferramenta retornar um erro, não trave a conversa - avise brevemente
 que aquela ação específica não funcionou agora e continue ajudando com o
@@ -209,6 +216,19 @@ const CUSTOM_TOOLS = [
     },
   },
   {
+    name: "painel_escrever",
+    description:
+      "Anota uma mudança no 'Meu Painel' da Bia. O painel aplica quando ela abrir. Ações e campos de 'dados': pendencia_criar {titulo, lista: todo|casa|aguardando|longo|receber|comprar, prazo?: AAAA-MM-DD, prioridade?: normal|alta, nota?}; pendencia_concluir {titulo}; compromisso_criar {titulo, data: AAAA-MM-DD, hora?: HH:MM, local?}; habito_marcar {nome, data?: AAAA-MM-DD (padrão hoje)}; nota_criar {titulo, texto?, itens?: [texto]}; nota_adicionar_item {titulo (da nota/lista), item}; lancamento_criar {tipo: saida|entrada, valor (número em reais), descricao, categoria?, data?: AAAA-MM-DD}. Use os nomes como aparecem no painel (painel_ler) quando for concluir/marcar algo existente.",
+    input_schema: {
+      type: "object",
+      properties: {
+        acao: { type: "string", enum: PAINEL_ACOES },
+        dados: { type: "object", description: "Campos da ação, conforme a descrição da ferramenta" },
+      },
+      required: ["acao", "dados"],
+    },
+  },
+  {
     name: "generate_quote_image",
     description:
       "Gera uma imagem estilo 'quote card' (frase estilizada num fundo colorido) pronta pra postar no LinkedIn ou Instagram, e já manda a imagem pro WhatsApp da Bia. Use quando ela pedir pra criar uma imagem com uma frase/citação.",
@@ -317,6 +337,14 @@ async function executeCustomTool(db, env, name, input, whatsappNumber) {
         return JSON.stringify({ error: true, message: "O painel pessoal só pode ser lido pela Bia." });
       }
       const result = await readPainel(env, { secoes: input.secoes, apenasAbertas: !input.incluir_feitas });
+      return JSON.stringify(result);
+    }
+    case "painel_escrever": {
+      const digits = (n) => String(n || "").replace(/\D/g, "");
+      if (!env.OWNER_WHATSAPP_NUMBER || digits(whatsappNumber) !== digits(env.OWNER_WHATSAPP_NUMBER)) {
+        return JSON.stringify({ error: true, message: "O painel pessoal só pode ser alterado pela Bia." });
+      }
+      const result = await writePainel(env, input.acao, input.dados);
       return JSON.stringify(result);
     }
     case "generate_quote_image": {

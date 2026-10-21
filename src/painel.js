@@ -9,16 +9,34 @@
  * dentro de uma pasta fixa do Drive. A Nina lê a cópia MAIS RECENTE dessa
  * pasta - então o que ela vê é tão atual quanto a última cópia feita.
  *
- * Autenticação: conta de serviço padrão do Cloud Run (ADC), com escopo
- * drive.readonly. Pra funcionar, a pasta precisa estar compartilhada (como
- * Leitor) com 1059605088472-compute@developer.gserviceaccount.com e as APIs
- * Drive + Sheets precisam estar ativadas no projeto ninacloud.
+ * Escrita: a Nina não tem como gravar direto no painel, então ela anota o
+ * pedido (criar pendência, marcar hábito...) numa linha da planilha
+ * "Nina → Meu Painel (pedidos)", na mesma pasta. Quando a Bia abre o painel,
+ * ele lê essa planilha e aplica os pedidos que ainda não aplicou.
+ *
+ * Autenticação: conta de serviço padrão do Cloud Run (ADC). Pra funcionar, a
+ * pasta precisa estar compartilhada (como Leitor) e a planilha de pedidos
+ * (como Editor) com 1059605088472-compute@developer.gserviceaccount.com, e
+ * as APIs Drive + Sheets precisam estar ativadas no projeto ninacloud.
  */
 import { GoogleAuth } from "google-auth-library";
 import { fetchWithTimeout } from "./fetch_timeout.js";
 
 // Pasta "cópias do Meu Painel" no Drive da Bia (BK_FOLDER no HTML do painel)
 const DEFAULT_FOLDER_ID = "1Pf-dlXuTgD8hSQCeASrIdcoQSqZtFsoM";
+// Planilha "Nina → Meu Painel (pedidos)": colunas id, criado_em, acao, dados
+const DEFAULT_INBOX_ID = "1l9E3_dhFL-Lm3nv9K209uDC16f6zBHV57iUjRF3f15E";
+
+// Pedidos que o painel sabe aplicar (ver aplicarPedidosNina no HTML do painel)
+export const PAINEL_ACOES = [
+  "pendencia_criar",
+  "pendencia_concluir",
+  "compromisso_criar",
+  "habito_marcar",
+  "nota_criar",
+  "nota_adicionar_item",
+  "lancamento_criar",
+];
 
 export const PAINEL_SECOES = [
   "Pendências",
@@ -42,15 +60,20 @@ let auth = null;
 
 async function getAccessToken() {
   if (!auth) {
-    auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/drive.readonly"] });
+    auth = new GoogleAuth({
+      scopes: ["https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/spreadsheets"],
+    });
   }
   const token = await auth.getAccessToken();
   if (!token) throw new Error("Não consegui token da conta de serviço pro Drive.");
   return token;
 }
 
-async function getJson(url, token, what) {
-  const resp = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } });
+async function getJson(url, token, what, options = {}) {
+  const resp = await fetchWithTimeout(url, {
+    ...options,
+    headers: { Authorization: `Bearer ${token}`, ...(options.body ? { "Content-Type": "application/json" } : {}) },
+  });
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
     throw new Error(`Falha ao ${what} (${resp.status}): ${errText}`);
@@ -60,7 +83,7 @@ async function getJson(url, token, what) {
 
 async function findLatestCopy(token, folderId) {
   const params = new URLSearchParams({
-    q: `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`,
+    q: `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and name contains 'cópia' and trashed = false`,
     orderBy: "createdTime desc",
     pageSize: "1",
     fields: "files(id,name,createdTime)",
@@ -120,5 +143,45 @@ export async function readPainel(config, { secoes, apenasAbertas = true } = {}) 
       ...(rows.length > MAX_ROWS ? { cortado: `mostrando só as últimas ${MAX_ROWS}` } : {}),
     };
   });
+  // Pedidos que a Nina anotou depois dessa cópia ainda não aparecem nela
+  try {
+    const pend = await readPedidos(config, token);
+    const recentes = pend.filter((p) => p.criado_em > file.createdTime);
+    if (recentes.length) result.pedidos_da_nina_depois_da_copia = recentes;
+  } catch (err) {
+    console.error("Erro ao ler pedidos da Nina (seguindo sem eles):", err);
+  }
   return result;
+}
+
+async function readPedidos(config, token) {
+  const inboxId = config.PAINEL_INBOX_ID || DEFAULT_INBOX_ID;
+  const data = await getJson(
+    `https://sheets.googleapis.com/v4/spreadsheets/${inboxId}/values/A:D`,
+    token,
+    "ler os pedidos da Nina"
+  );
+  return rowsToObjects(data.values);
+}
+
+/**
+ * Anota um pedido de mudança pro painel aplicar quando a Bia abrir.
+ */
+export async function writePainel(config, acao, dados) {
+  if (!PAINEL_ACOES.includes(acao)) throw new Error(`Ação desconhecida pro painel: ${acao}`);
+  const inboxId = config.PAINEL_INBOX_ID || DEFAULT_INBOX_ID;
+  const token = await getAccessToken();
+  const id = `nina-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const params = new URLSearchParams({ valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" });
+  await getJson(
+    `https://sheets.googleapis.com/v4/spreadsheets/${inboxId}/values/A:D:append?${params}`,
+    token,
+    "anotar o pedido no painel",
+    { method: "POST", body: JSON.stringify({ values: [[id, new Date().toISOString(), acao, JSON.stringify(dados || {})]] }) }
+  );
+  return {
+    ok: true,
+    id,
+    aviso: "Anotado. O painel aplica esse pedido na próxima vez que a Bia abrir o Meu Painel.",
+  };
 }
